@@ -1,0 +1,5 @@
+{
+  "name": "Citius Analytics Pro",
+  "description": "Uma aplicação jurídica avançada para análise, segmentação e gestão de processos judiciais exportados do sistema Citius (Portugal), com extração inteligente de metadados e sumários via IA.",
+  "requestFramePermissions": []
+}
