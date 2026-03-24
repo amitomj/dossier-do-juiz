@@ -28,6 +28,7 @@ import {
 } from 'lucide-react';
 
 const App: React.FC = () => {
+  const [hasApiKey, setHasApiKey] = useState<boolean | null>(null);
   const [file, setFile] = useState<File | null>(null);
   const [rawText, setRawText] = useState<string>(''); 
   const [isProcessing, setIsProcessing] = useState(false);
@@ -47,10 +48,25 @@ const App: React.FC = () => {
   const jsonInputRef = useRef<HTMLInputElement>(null);
   const relinkPdfInputRef = useRef<HTMLInputElement>(null);
 
+  useEffect(() => {
+    const checkApiKey = async () => {
+      try {
+        // @ts-ignore
+        const selected = await window.aistudio.hasSelectedApiKey();
+        setHasApiKey(selected);
+      } catch (err) {
+        console.error("Error checking API key:", err);
+        setHasApiKey(false);
+      }
+    };
+    checkApiKey();
+  }, []);
+
   const handleOpenKeySelection = async () => {
     try {
       // @ts-ignore
       await window.aistudio.openSelectKey();
+      setHasApiKey(true); // Assume success to proceed
       setError(null);
     } catch (err) {
       console.error("Failed to open key selection", err);
@@ -250,6 +266,44 @@ const App: React.FC = () => {
     if (!selectedDoc || !analysis) return [];
     return analysis.documentos.filter(d => d.ref_ato === selectedDoc.ref_ato);
   }, [selectedDoc, analysis]);
+
+  if (hasApiKey === null) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+        <Loader2 className="w-8 h-8 text-blue-600 animate-spin" />
+      </div>
+    );
+  }
+
+  if (hasApiKey === false) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-6 text-slate-900">
+        <div className="w-full max-w-md space-y-8 text-center animate-in fade-in duration-500">
+          <div className="inline-flex items-center justify-center p-4 bg-blue-600 rounded-3xl shadow-xl mb-4">
+            <Key className="w-10 h-10 text-white" />
+          </div>
+          <div className="space-y-4">
+            <h1 className="text-3xl font-black tracking-tight uppercase">Configuração Necessária</h1>
+            <p className="text-slate-500 font-medium leading-relaxed">
+              Para utilizar as funcionalidades avançadas de IA do Citius Pro, é necessário selecionar uma chave da API do Gemini.
+            </p>
+            <div className="p-4 bg-blue-50 rounded-2xl border border-blue-100 text-left">
+              <p className="text-[11px] font-black text-blue-800 uppercase tracking-widest mb-2">Nota Importante:</p>
+              <p className="text-xs text-blue-700 leading-relaxed">
+                Deve selecionar uma chave de um projeto Google Cloud com faturação ativa. Consulte a <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" rel="noopener noreferrer" className="underline font-bold">documentação de faturação</a> para mais detalhes.
+              </p>
+            </div>
+          </div>
+          <button 
+            onClick={handleOpenKeySelection}
+            className="w-full py-4 bg-blue-600 text-white font-black rounded-2xl hover:bg-blue-700 transition-all shadow-xl shadow-blue-100 uppercase tracking-widest text-xs flex items-center justify-center gap-3"
+          >
+            <Key className="w-4 h-4" /> Selecionar Chave da API
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   if (!analysis && !isProcessing) {
     return (
