@@ -50,26 +50,39 @@ const App: React.FC = () => {
 
   useEffect(() => {
     const checkApiKey = async () => {
-      try {
-        // @ts-ignore
-        const selected = await window.aistudio.hasSelectedApiKey();
-        setHasApiKey(selected);
-      } catch (err) {
-        console.error("Error checking API key:", err);
-        setHasApiKey(false);
+      // @ts-ignore
+      if (window.aistudio) {
+        try {
+          // @ts-ignore
+          const selected = await window.aistudio.hasSelectedApiKey();
+          setHasApiKey(selected);
+        } catch (err) {
+          console.error("Error checking API key:", err);
+          setHasApiKey(false);
+        }
+      } else {
+        // For external deployments (Vercel, etc.), check if the key is already defined via env vars
+        const isKeyPresent = !!(process.env.API_KEY || process.env.GEMINI_API_KEY);
+        setHasApiKey(isKeyPresent);
       }
     };
     checkApiKey();
   }, []);
 
   const handleOpenKeySelection = async () => {
-    try {
-      // @ts-ignore
-      await window.aistudio.openSelectKey();
-      setHasApiKey(true); // Assume success to proceed
-      setError(null);
-    } catch (err) {
-      console.error("Failed to open key selection", err);
+    // @ts-ignore
+    if (window.aistudio) {
+      try {
+        // @ts-ignore
+        await window.aistudio.openSelectKey();
+        setHasApiKey(true); // Assume success to proceed
+        setError(null);
+      } catch (err) {
+        console.error("Failed to open key selection", err);
+      }
+    } else {
+      // If not in AI Studio, we can't open the selection dialog
+      setError({ message: 'Para utilizar esta app fora do AI Studio (ex: Vercel), deve configurar a variável de ambiente GEMINI_API_KEY nas definições do seu projeto.' });
     }
   };
 
@@ -276,6 +289,7 @@ const App: React.FC = () => {
   }
 
   if (hasApiKey === false) {
+    const isExternal = typeof window !== 'undefined' && !(window as any).aistudio;
     return (
       <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-6 text-slate-900">
         <div className="w-full max-w-md space-y-8 text-center animate-in fade-in duration-500">
@@ -285,21 +299,28 @@ const App: React.FC = () => {
           <div className="space-y-4">
             <h1 className="text-3xl font-black tracking-tight uppercase">Configuração Necessária</h1>
             <p className="text-slate-500 font-medium leading-relaxed">
-              Para utilizar as funcionalidades avançadas de IA do Citius Pro, é necessário selecionar uma chave da API do Gemini.
+              {isExternal 
+                ? "Para utilizar esta aplicação no Vercel, deve configurar a sua chave da API do Gemini."
+                : "Para utilizar as funcionalidades avançadas de IA do Citius Pro, é necessário selecionar uma chave da API do Gemini."}
             </p>
             <div className="p-4 bg-blue-50 rounded-2xl border border-blue-100 text-left">
               <p className="text-[11px] font-black text-blue-800 uppercase tracking-widest mb-2">Nota Importante:</p>
               <p className="text-xs text-blue-700 leading-relaxed">
-                Deve selecionar uma chave de um projeto Google Cloud com faturação ativa. Consulte a <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" rel="noopener noreferrer" className="underline font-bold">documentação de faturação</a> para mais detalhes.
+                {isExternal 
+                  ? "Adicione a variável de ambiente GEMINI_API_KEY no painel de controlo do Vercel e faça um novo deploy."
+                  : "Deve selecionar uma chave de um projeto Google Cloud com faturação ativa. Consulte a documentação de faturação para mais detalhes."}
               </p>
             </div>
           </div>
-          <button 
-            onClick={handleOpenKeySelection}
-            className="w-full py-4 bg-blue-600 text-white font-black rounded-2xl hover:bg-blue-700 transition-all shadow-xl shadow-blue-100 uppercase tracking-widest text-xs flex items-center justify-center gap-3"
-          >
-            <Key className="w-4 h-4" /> Selecionar Chave da API
-          </button>
+          {!isExternal && (
+            <button 
+              onClick={handleOpenKeySelection}
+              className="w-full py-4 bg-blue-600 text-white font-black rounded-2xl hover:bg-blue-700 transition-all shadow-xl shadow-blue-100 uppercase tracking-widest text-xs flex items-center justify-center gap-3"
+            >
+              <Key className="w-4 h-4" /> Selecionar Chave da API
+            </button>
+          )}
+          {error && <div className="mt-4 p-4 rounded-xl bg-red-50 text-red-700 text-xs font-bold border border-red-100">{error.message}</div>}
         </div>
       </div>
     );
