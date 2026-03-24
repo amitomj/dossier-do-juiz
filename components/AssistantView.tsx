@@ -25,6 +25,7 @@ interface AssistantViewProps {
   setChatHistory: React.Dispatch<React.SetStateAction<ChatMessage[]>>;
   onFileLink?: (file: File) => void;
   onDocumentSelect?: (doc: DocumentMetadata) => void;
+  onApiKeyInvalid?: () => void;
 }
 
 export const AssistantView: React.FC<AssistantViewProps> = ({ 
@@ -34,7 +35,8 @@ export const AssistantView: React.FC<AssistantViewProps> = ({
   chatHistory, 
   setChatHistory,
   onFileLink,
-  onDocumentSelect
+  onDocumentSelect,
+  onApiKeyInvalid
 }) => {
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -91,15 +93,23 @@ export const AssistantView: React.FC<AssistantViewProps> = ({
       };
 
       setChatHistory(prev => [...prev, assistantMessage]);
-    } catch (error) {
+    } catch (error: any) {
       console.error(error);
-      const errorMessage: ChatMessage = {
-        id: (Date.now() + 1).toString(),
-        role: 'assistant',
-        content: "Lamento, ocorreu um erro ao processar a sua pergunta. Verifique a ligação e tente novamente.",
-        timestamp: Date.now()
-      };
-      setChatHistory(prev => [...prev, errorMessage]);
+      const isApiKeyInvalid = error?.message?.includes('API key not valid') || error?.message?.includes('INVALID_ARGUMENT');
+      
+      if (isApiKeyInvalid && onApiKeyInvalid) {
+        onApiKeyInvalid();
+      } else {
+        const errorMessage: ChatMessage = {
+          id: (Date.now() + 1).toString(),
+          role: 'assistant',
+          content: isApiKeyInvalid 
+            ? "A chave da API introduzida é inválida. Por favor, reintroduza a chave." 
+            : "Lamento, ocorreu um erro ao processar a sua pergunta. Verifique a ligação e tente novamente.",
+          timestamp: Date.now()
+        };
+        setChatHistory(prev => [...prev, errorMessage]);
+      }
     } finally {
       setIsLoading(false);
     }

@@ -187,14 +187,22 @@ const App: React.FC = () => {
       setAnalysis({ ...result, documentos: sortedDocs });
       setChatHistory([]); 
     } catch (err: any) {
-      console.error(err);
-      const isQuota = err?.message?.includes('429') || err?.status === 429;
-      setError({ 
-        message: isQuota 
-          ? 'Limite excedido. Configure a sua chave da API.' 
-          : 'Erro ao processar o PDF. Tente novamente.',
-        isQuota: isQuota
-      });
+      console.error("Processing error:", err);
+      const isApiKeyInvalid = err?.message?.includes('API key not valid') || err?.message?.includes('INVALID_ARGUMENT');
+      
+      if (isApiKeyInvalid) {
+        setError({ message: 'A chave da API introduzida é inválida. Por favor, verifique a chave e tente novamente.' });
+        localStorage.removeItem('GEMINI_API_KEY');
+        setHasApiKey(false);
+      } else {
+        const isQuota = err?.message?.includes('429') || err?.status === 429;
+        setError({ 
+          message: isQuota 
+            ? 'Limite de quota excedido. Por favor, aguarde um momento.' 
+            : 'Erro ao processar o documento. Verifique se o PDF é válido.',
+          isQuota: isQuota
+        });
+      }
     } finally {
       setIsProcessing(false);
       setProcessingStep(null);
@@ -514,6 +522,11 @@ const App: React.FC = () => {
                 setChatHistory={setChatHistory} 
                 onFileLink={(f) => setFile(f)}
                 onDocumentSelect={setSelectedDoc}
+                onApiKeyInvalid={() => {
+                  localStorage.removeItem('GEMINI_API_KEY');
+                  setHasApiKey(false);
+                  setError({ message: 'A chave da API introduzida é inválida. Por favor, reintroduza a chave.' });
+                }}
               />
             )}
           </div>
