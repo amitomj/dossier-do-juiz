@@ -29,6 +29,7 @@ import {
 
 const App: React.FC = () => {
   const [hasApiKey, setHasApiKey] = useState<boolean | null>(null);
+  const [manualApiKey, setManualApiKey] = useState<string>('');
   const [file, setFile] = useState<File | null>(null);
   const [rawText, setRawText] = useState<string>(''); 
   const [isProcessing, setIsProcessing] = useState(false);
@@ -61,13 +62,23 @@ const App: React.FC = () => {
           setHasApiKey(false);
         }
       } else {
-        // For external deployments (Vercel, etc.), check if the key is already defined via env vars
-        const isKeyPresent = !!(process.env.API_KEY || process.env.GEMINI_API_KEY);
+        // For external deployments (Vercel, etc.), check if the key is already defined via env vars or localStorage
+        const manualKey = localStorage.getItem('GEMINI_API_KEY');
+        const isKeyPresent = !!(process.env.API_KEY || process.env.GEMINI_API_KEY || manualKey);
         setHasApiKey(isKeyPresent);
       }
     };
     checkApiKey();
   }, []);
+
+  const handleManualKeySubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (manualApiKey.trim()) {
+      localStorage.setItem('GEMINI_API_KEY', manualApiKey.trim());
+      setHasApiKey(true);
+      setError(null);
+    }
+  };
 
   const handleOpenKeySelection = async () => {
     // @ts-ignore
@@ -82,7 +93,7 @@ const App: React.FC = () => {
       }
     } else {
       // If not in AI Studio, we can't open the selection dialog
-      setError({ message: 'Para utilizar esta app fora do AI Studio (ex: Vercel), deve configurar a variável de ambiente GEMINI_API_KEY nas definições do seu projeto.' });
+      setError({ message: 'Para utilizar esta app fora do AI Studio (ex: Vercel), deve configurar a variável de ambiente GEMINI_API_KEY ou colar a chave abaixo.' });
     }
   };
 
@@ -300,17 +311,41 @@ const App: React.FC = () => {
             <h1 className="text-3xl font-black tracking-tight uppercase">Configuração Necessária</h1>
             <p className="text-slate-500 font-medium leading-relaxed">
               {isExternal 
-                ? "Para utilizar esta aplicação no Vercel, deve configurar a sua chave da API do Gemini."
+                ? "Para utilizar esta aplicação no Vercel, introduza a sua chave da API do Gemini."
                 : "Para utilizar as funcionalidades avançadas de IA do Citius Pro, é necessário selecionar uma chave da API do Gemini."}
             </p>
-            <div className="p-4 bg-blue-50 rounded-2xl border border-blue-100 text-left">
-              <p className="text-[11px] font-black text-blue-800 uppercase tracking-widest mb-2">Nota Importante:</p>
-              <p className="text-xs text-blue-700 leading-relaxed">
-                {isExternal 
-                  ? "Adicione a variável de ambiente GEMINI_API_KEY no painel de controlo do Vercel e faça um novo deploy."
-                  : "Deve selecionar uma chave de um projeto Google Cloud com faturação ativa. Consulte a documentação de faturação para mais detalhes."}
-              </p>
-            </div>
+            
+            {isExternal ? (
+              <form onSubmit={handleManualKeySubmit} className="space-y-4">
+                <div className="relative">
+                  <Key className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                  <input 
+                    type="password" 
+                    placeholder="Cole aqui a sua chave da API..." 
+                    value={manualApiKey}
+                    onChange={(e) => setManualApiKey(e.target.value)}
+                    className="w-full pl-12 pr-4 py-4 bg-white border border-slate-200 rounded-2xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all font-medium"
+                  />
+                </div>
+                <button 
+                  type="submit"
+                  disabled={!manualApiKey.trim()}
+                  className="w-full py-4 bg-blue-600 text-white font-black rounded-2xl hover:bg-blue-700 transition-all shadow-xl shadow-blue-100 uppercase tracking-widest text-xs disabled:opacity-50"
+                >
+                  Confirmar Chave
+                </button>
+                <p className="text-[10px] text-slate-400 font-medium">
+                  A chave será guardada localmente no seu navegador.
+                </p>
+              </form>
+            ) : (
+              <div className="p-4 bg-blue-50 rounded-2xl border border-blue-100 text-left">
+                <p className="text-[11px] font-black text-blue-800 uppercase tracking-widest mb-2">Nota Importante:</p>
+                <p className="text-xs text-blue-700 leading-relaxed">
+                  Deve selecionar uma chave de um projeto Google Cloud com faturação ativa. Consulte a documentação de faturação para mais detalhes.
+                </p>
+              </div>
+            )}
           </div>
           {!isExternal && (
             <button 
@@ -413,6 +448,18 @@ const App: React.FC = () => {
           <input type="text" placeholder="Filtrar cronologia..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border-transparent focus:bg-white focus:border-blue-500 rounded-xl text-xs transition-all border font-medium" />
         </div>
         <div className="flex items-center space-x-2">
+          {!(window as any).aistudio && (
+            <button 
+              onClick={() => {
+                localStorage.removeItem('GEMINI_API_KEY');
+                setHasApiKey(false);
+              }}
+              className="px-3 py-2 text-[10px] font-black uppercase bg-slate-100 text-slate-500 rounded-xl hover:bg-slate-200 transition-colors"
+              title="Alterar Chave da API"
+            >
+              <Key className="w-3.5 h-3.5" />
+            </button>
+          )}
           <button onClick={handleSaveProject} className="flex items-center space-x-2 px-4 py-2 text-[10px] font-black uppercase bg-blue-50 text-blue-600 border border-blue-100 rounded-xl hover:bg-blue-100 transition-colors">
             <Download className="w-3.5 h-3.5" /> <span className="hidden md:inline">Guardar JSON</span>
           </button>
