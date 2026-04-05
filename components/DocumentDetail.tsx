@@ -1,7 +1,7 @@
 
 import React, { useMemo, useState, useRef } from 'react';
 import { DocumentMetadata, DocumentType, SubDocument } from '../types';
-import { X, FileSearch, Library, ExternalLink, Scale, ShieldCheck, User, Paperclip, AlertTriangle } from 'lucide-react';
+import { X, FileSearch, Library, ExternalLink, Scale, ShieldCheck, User, Paperclip, AlertTriangle, Copy, Check } from 'lucide-react';
 import { TYPE_COLORS } from '../constants';
 import { PdfPagePreview } from './PdfPagePreview';
 
@@ -12,10 +12,12 @@ interface DocumentDetailProps {
   siblings?: DocumentMetadata[];
   onSelectSibling: (doc: DocumentMetadata) => void;
   onFileRelink?: (file: File) => void;
+  initialPage?: number;
 }
 
-export const DocumentDetail: React.FC<DocumentDetailProps> = ({ doc, file, onClose, siblings = [], onSelectSibling, onFileRelink }) => {
-  const [activeTab, setActiveTab] = useState<'preview' | 'subdocs'>(doc.sub_documentos?.length ? 'subdocs' : 'preview');
+export const DocumentDetail: React.FC<DocumentDetailProps> = ({ doc, file, onClose, siblings = [], onSelectSibling, onFileRelink, initialPage }) => {
+  const [activeTab, setActiveTab] = useState<'preview' | 'subdocs'>(initialPage ? 'preview' : (doc.sub_documentos?.length ? 'subdocs' : 'preview'));
+  const [currentPage, setCurrentPage] = useState<number>(initialPage || doc.pagina_inicial);
   const colorClass = TYPE_COLORS[doc.tipo_documento_principal] || 'bg-gray-100 text-gray-800 border-gray-200';
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -25,7 +27,7 @@ export const DocumentDetail: React.FC<DocumentDetailProps> = ({ doc, file, onClo
       return;
     }
     const fileUrl = URL.createObjectURL(file);
-    const targetPage = pageNumber || doc.pagina_inicial;
+    const targetPage = pageNumber || currentPage;
     const win = window.open(`${fileUrl}#page=${targetPage}`, '_blank');
     if (win) win.focus();
   };
@@ -73,7 +75,7 @@ export const DocumentDetail: React.FC<DocumentDetailProps> = ({ doc, file, onClo
                 }`}
               >
                 {file ? <FileSearch className="w-4 h-4" /> : <Paperclip className="w-4 h-4" />}
-                <span>{file ? `Abrir Original (Pág. ${doc.pagina_inicial})` : 'Vincular PDF'}</span>
+                <span>{file ? `Abrir Original (Pág. ${currentPage})` : 'Vincular PDF'}</span>
               </button>
               <button onClick={onClose} className="p-2 hover:bg-gray-200 rounded-full transition-colors text-gray-400">
                 <X className="w-6 h-6" />
@@ -83,7 +85,7 @@ export const DocumentDetail: React.FC<DocumentDetailProps> = ({ doc, file, onClo
 
           <div className="flex px-10 bg-white border-b">
             <button onClick={() => setActiveTab('preview')} className={`px-6 py-4 text-xs font-black uppercase tracking-widest border-b-2 transition-all ${activeTab === 'preview' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-400'}`}>
-              Visualização (Pág. {doc.pagina_inicial})
+              Visualização (Pág. {currentPage})
             </button>
             {doc.sub_documentos && doc.sub_documentos.length > 0 && (
               <button onClick={() => setActiveTab('subdocs')} className={`px-6 py-4 text-xs font-black uppercase tracking-widest border-b-2 transition-all ${activeTab === 'subdocs' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-400'}`}>
@@ -93,9 +95,46 @@ export const DocumentDetail: React.FC<DocumentDetailProps> = ({ doc, file, onClo
           </div>
 
           <div className="flex-1 overflow-hidden p-4 bg-slate-200 shadow-inner">
-            <div className="h-full animate-in slide-in-from-left-4 duration-300">
-              <PdfPagePreview file={file} pageNumber={doc.pagina_inicial} snapshot={doc.snapshot} />
-            </div>
+            {activeTab === 'preview' ? (
+              <div className="h-full animate-in slide-in-from-left-4 duration-300">
+                <PdfPagePreview file={file} pageNumber={currentPage} snapshot={currentPage === doc.pagina_inicial ? doc.snapshot : undefined} />
+              </div>
+            ) : (
+              <div className="h-full bg-white rounded-2xl p-8 overflow-y-auto animate-in slide-in-from-right-4 duration-300">
+                <h3 className="text-lg font-black text-slate-900 mb-6 flex items-center gap-2">
+                  <Library className="w-5 h-5 text-blue-600" />
+                  Documentos Identificados no Agregador
+                </h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {doc.sub_documentos?.map((sub) => (
+                    <button
+                      key={sub.id}
+                      onClick={() => {
+                        setCurrentPage(sub.pagina_pdf);
+                        setActiveTab('preview');
+                      }}
+                      className="flex items-start p-4 bg-slate-50 border border-slate-200 rounded-2xl hover:border-blue-400 hover:bg-blue-50/30 transition-all text-left group"
+                    >
+                      <div className="p-2 bg-white rounded-lg border border-slate-200 group-hover:border-blue-200 mr-4 shrink-0">
+                        <FileSearch className="w-5 h-5 text-slate-400 group-hover:text-blue-600" />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="flex items-center space-x-2">
+                          {sub.numero_documento_manuscrito && (
+                            <span className="px-1 py-0.5 bg-slate-900 text-white text-[8px] font-black rounded uppercase tracking-tighter shrink-0">
+                              {sub.numero_documento_manuscrito}
+                            </span>
+                          )}
+                          <h4 className="text-sm font-black text-slate-900 group-hover:text-blue-600 truncate">{sub.titulo}</h4>
+                        </div>
+                        <p className="text-xs text-slate-500 line-clamp-2 mt-1">{sub.descricao}</p>
+                        <div className="mt-2 text-[10px] font-black text-blue-600 uppercase tracking-widest">Página {sub.pagina_pdf}</div>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
@@ -104,6 +143,9 @@ export const DocumentDetail: React.FC<DocumentDetailProps> = ({ doc, file, onClo
             <h3 className="text-[11px] font-black text-gray-400 uppercase tracking-[0.3em] mb-6">Dados da Peça</h3>
             <div className="space-y-5">
               <MetaItem label="Processo" value={doc.numero_processo || '---'} isHighlight />
+              {doc.numero_documento_manuscrito && (
+                <MetaItem label="Nº Manuscrito" value={doc.numero_documento_manuscrito} isBadge />
+              )}
               <MetaItem label="Ref. Ato" value={doc.ref_ato} isBadge />
               <MetaItem label="Ref. Doc" value={doc.ref_documento} isBadge />
               <MetaItem label="Apresentante" value={doc.parte_apresentante} />
@@ -116,12 +158,12 @@ export const DocumentDetail: React.FC<DocumentDetailProps> = ({ doc, file, onClo
             <div className="pt-8 border-t border-gray-200">
               <h3 className="text-[11px] font-black text-gray-400 uppercase tracking-[0.3em] mb-4">Ato Completo</h3>
               <div className="space-y-2">
-                {siblings.map((sibling) => (
+                {siblings.map((sibling, sIdx) => (
                   <button
-                    key={sibling.id_documento}
+                    key={sibling.ref_documento || sibling.id_documento || sIdx}
                     onClick={() => onSelectSibling(sibling)}
                     className={`w-full text-left p-3 rounded-xl text-[10px] font-bold border transition-all ${
-                      sibling.id_documento === doc.id_documento 
+                      sibling.ref_documento === doc.ref_documento 
                         ? 'bg-blue-600 text-white border-blue-600 shadow-md' 
                         : 'bg-white text-gray-700 hover:bg-gray-50'
                     }`}
@@ -139,17 +181,39 @@ export const DocumentDetail: React.FC<DocumentDetailProps> = ({ doc, file, onClo
   );
 };
 
-const MetaItem = ({ label, value, isBadge, isHighlight, icon }: { label: string; value: string; isBadge?: boolean; isHighlight?: boolean, icon?: React.ReactNode }) => (
-  <div className="group">
-    <span className="text-[10px] font-black text-gray-400 uppercase flex items-center tracking-tight mb-1.5">
-      {icon} {label}
-    </span>
-    <span className={`text-[12px] font-extrabold block leading-tight ${
-      isBadge ? 'text-blue-700 bg-blue-50 px-2 py-0.5 rounded-md border border-blue-100 w-fit' : 
-      isHighlight ? 'text-blue-900 bg-white border border-blue-600/20 px-3 py-1.5 rounded-lg shadow-sm' : 
-      'text-gray-900'
-    }`}>
-      {value || '---'}
-    </span>
-  </div>
-);
+const MetaItem = ({ label, value, isBadge, isHighlight, icon }: { label: string; value: string; isBadge?: boolean; isHighlight?: boolean, icon?: React.ReactNode }) => {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = () => {
+    if (!value || value === '---') return;
+    navigator.clipboard.writeText(value);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <div className="group relative">
+      <div className="flex items-center justify-between mb-1.5">
+        <span className="text-[10px] font-black text-gray-400 uppercase flex items-center tracking-tight">
+          {icon} {label}
+        </span>
+        {isBadge && value && value !== '---' && (
+          <button 
+            onClick={handleCopy}
+            className="opacity-0 group-hover:opacity-100 transition-opacity p-1 hover:bg-blue-100 rounded text-blue-600"
+            title="Copiar"
+          >
+            {copied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+          </button>
+        )}
+      </div>
+      <span className={`text-[12px] font-extrabold block leading-tight font-mono ${
+        isBadge ? 'text-blue-700 bg-blue-50 px-2 py-1 rounded-md border border-blue-100 w-fit' : 
+        isHighlight ? 'text-blue-900 bg-white border border-blue-600/20 px-3 py-1.5 rounded-lg shadow-sm font-sans' : 
+        'text-gray-900 font-sans'
+      }`}>
+        {value || '---'}
+      </span>
+    </div>
+  );
+};

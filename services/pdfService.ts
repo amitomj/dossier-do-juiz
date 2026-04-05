@@ -13,10 +13,16 @@ export const getPdfDocument = async (file: File): Promise<pdfjsLib.PDFDocumentPr
     return cachedPdf;
   }
   
-  const arrayBuffer = await file.arrayBuffer();
-  cachedPdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-  cachedFile = file;
-  return cachedPdf;
+  try {
+    const arrayBuffer = await file.arrayBuffer();
+    const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
+    cachedPdf = await loadingTask.promise;
+    cachedFile = file;
+    return cachedPdf;
+  } catch (err: any) {
+    console.error("Error loading PDF:", err);
+    throw new Error(`Erro ao carregar o PDF: ${err.message || 'Ficheiro inválido ou corrompido.'}`);
+  }
 };
 
 export const getPageSnapshot = async (file: File, pageNumber: number): Promise<string> => {
@@ -40,19 +46,34 @@ export const getPageSnapshot = async (file: File, pageNumber: number): Promise<s
   return canvas.toDataURL('image/jpeg', 0.7);
 };
 
-export const extractTextFromPdf = async (file: File): Promise<string> => {
+export const extractTextFromPdf = async (file: File): Promise<{ text: string; pages: string[]; totalPages: number }> => {
   const pdf = await getPdfDocument(file);
-  let fullText = "";
-
-  for (let i = 1; i <= pdf.numPages; i++) {
-    const page = await pdf.getPage(i);
-    const textContent = await page.getTextContent();
-    const pageText = textContent.items
-      .map((item: any) => item.str)
-      .join(" ");
+  const totalPages = pdf.numPages;
+  const pageTexts: string[] = new Array(totalPages);
+  
+  // Processar em lotes para não sobrecarregar
+  const batchSize = 20;
+  for (let i = 1; i <= totalPages; i += batchSize) {
+    const batch = [];
+    for (let j = i; j < i + batchSize && j <= totalPages; j++) {
+      batch.push(j);
+    }
     
-    fullText += `\n--- PÁGINA ${i} ---\n${pageText}\n`;
+    await Promise.all(batch.map(async (pageNum) => {
+      try {
+        const page = await pdf.getPage(pageNum);
+        const textContent = await page.getTextContent();
+        const pageText = textContent.items
+          .map((item: any) => item.str)
+          .join(" ");
+        pageTexts[pageNum - 1] = pageText;
+      } catch (e) {
+        console.error(`Failed to extract text from page ${pageNum}`, e);
+        pageTexts[pageNum - 1] = `[Erro na extração de texto na página ${pageNum}]`;
+      }
+    }));
   }
 
-  return fullText;
+  const fullText = pageTexts.map((t, i) => `\n--- PÁGINA ${i + 1} ---\n${t}\n`).join("");
+  return { text: fullText, pages: pageTexts, totalPages };
 };

@@ -95,20 +95,24 @@ export const AssistantView: React.FC<AssistantViewProps> = ({
       setChatHistory(prev => [...prev, assistantMessage]);
     } catch (error: any) {
       console.error(error);
-      const isApiKeyInvalid = error?.message?.includes('API key not valid') || error?.message?.includes('INVALID_ARGUMENT');
+      const errorMsg = typeof error === 'string' ? error : (error?.message || JSON.stringify(error));
+      const isApiKeyInvalid = errorMsg.includes('API key not valid') || errorMsg.includes('INVALID_ARGUMENT');
       
       if (isApiKeyInvalid && onApiKeyInvalid) {
         onApiKeyInvalid();
       } else {
-        const errorMessage: ChatMessage = {
+        const isSpendingCap = errorMsg.toLowerCase().includes('spending cap') || errorMsg.toLowerCase().includes('billing');
+        const assistantMessage: ChatMessage = {
           id: (Date.now() + 1).toString(),
           role: 'assistant',
           content: isApiKeyInvalid 
             ? "A chave da API introduzida é inválida. Por favor, reintroduza a chave." 
+            : isSpendingCap
+            ? "O limite de gastos (spending cap) do seu projeto Google Cloud foi atingido. Verifique as configurações de faturação na Google Cloud Console."
             : "Lamento, ocorreu um erro ao processar a sua pergunta. Verifique a ligação e tente novamente.",
           timestamp: Date.now()
         };
-        setChatHistory(prev => [...prev, errorMessage]);
+        setChatHistory(prev => [...prev, assistantMessage]);
       }
     } finally {
       setIsLoading(false);
@@ -116,16 +120,30 @@ export const AssistantView: React.FC<AssistantViewProps> = ({
   };
 
   const handleOpenDoc = (page: number, ref?: string) => {
-    // Tenta primeiro abrir internamente se houver referência
-    if (ref && onDocumentSelect) {
-      const doc = documents.find(d => d.ref_documento === ref);
+    // Tenta primeiro abrir internamente se houver referência ou se pudermos criar um doc virtual
+    if (onDocumentSelect) {
+      const doc = documents.find(d => d.ref_documento === ref || d.pagina_inicial === page);
       if (doc) {
         onDocumentSelect(doc);
         return;
       }
+
+      // Se não encontrar o documento, cria um "virtual" para abrir a página no visualizador interno
+      onDocumentSelect({
+        id_documento: `page-${page}`,
+        titulo_resumido: `Página ${page}`,
+        sumario: `Visualização da página ${page} do processo.`,
+        pagina_inicial: page,
+        pagina_final: page,
+        tipo_documento_principal: 'Outro' as any,
+        ref_ato: 'Página Avulsa',
+        ref_documento: `P${page}`,
+        numero_processo: ''
+      } as DocumentMetadata);
+      return;
     }
 
-    // Fallback para abertura externa se não encontrar ou não houver ref
+    // Fallback para abertura externa (apenas se o interno falhar por algum motivo)
     if (!pdfUrl) {
       alert("Por favor, vincule o ficheiro PDF original para abrir as páginas.");
       fileInputRef.current?.click();

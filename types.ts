@@ -18,7 +18,7 @@ export enum DocumentType {
   OUTRO = 'Outro'
 }
 
-export type SortOrder = 'chronological' | 'alphabetical';
+export type SortOrder = 'chronological' | 'alphabetical' | 'index';
 
 export interface TokenMetrics {
   promptTokens: number;
@@ -46,6 +46,7 @@ export interface SubDocument {
   titulo: string;
   descricao: string;
   pagina_pdf: number;
+  numero_documento_manuscrito?: string;
 }
 
 export interface DocumentMetadata {
@@ -65,7 +66,9 @@ export interface DocumentMetadata {
   texto_integral: string;
   snapshot?: string; // Imagem Base64 da primeira página
   data_documento?: string;
+  numero_documento_manuscrito?: string;
   sub_documentos?: SubDocument[];
+  indexOrder: number;
   campos_especificos: Record<string, any>;
 }
 
@@ -76,4 +79,5 @@ export interface ProcessAnalysis {
   documentos: DocumentMetadata[];
   metrics?: TokenMetrics;
   chatHistory?: ChatMessage[];
+  isTruncated?: boolean;
 }

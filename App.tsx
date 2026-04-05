@@ -6,6 +6,8 @@ import { extractTextFromPdf, getPageSnapshot, getPdfDocument } from './services/
 import { DocumentGroup } from './components/DocumentGroup';
 import { DocumentDetail } from './components/DocumentDetail';
 import { AssistantView } from './components/AssistantView';
+import JSZip from 'jszip';
+import { PDFDocument } from 'pdf-lib';
 import { 
   Search, 
   Upload, 
@@ -24,7 +26,8 @@ import {
   ExternalLink,
   Cpu,
   Loader2,
-  Paperclip
+  Paperclip,
+  Archive
 } from 'lucide-react';
 
 const App: React.FC = () => {
@@ -38,12 +41,14 @@ const App: React.FC = () => {
   const [analysis, setAnalysis] = useState<ProcessAnalysis | null>(null);
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
   const [selectedDoc, setSelectedDoc] = useState<DocumentMetadata | null>(null);
+  const [selectedSubDocPage, setSelectedSubDocPage] = useState<number | undefined>(undefined);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState<string>('all');
-  const [sortOrder, setSortOrder] = useState<SortOrder>('chronological');
+  const [sortOrder, setSortOrder] = useState<SortOrder>('index');
   const [error, setError] = useState<{ message: string; isQuota?: boolean } | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [activeTab, setActiveTab] = useState<'timeline' | 'assistant'>('timeline');
+  const [isExporting, setIsExporting] = useState(false);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
   const jsonInputRef = useRef<HTMLInputElement>(null);
@@ -146,14 +151,22 @@ const App: React.FC = () => {
     setError(null);
     try {
       setProcessingStep('extracting');
-      const extractedText = await extractTextFromPdf(file);
-      const pdf = await getPdfDocument(file);
-      const totalPages = pdf.numPages;
+      const { text: extractedText, pages, totalPages } = await extractTextFromPdf(file);
+      
+      if (!extractedText || extractedText.trim().length < 10) {
+        throw new Error("Não foi possível extrair texto do PDF. O ficheiro pode estar protegido, corrompido ou ser composto apenas por imagens sem OCR.");
+      }
+
       setRawText(extractedText);
       
       setProcessingStep('analyzing');
-      const result = await analyzeProcessText(extractedText);
+      console.log(`Analyzing ${totalPages} pages of text in chunks...`);
+      const result = await analyzeProcessText(pages, totalPages);
       
+      if (!result || !result.documentos || result.documentos.length === 0) {
+        throw new Error("A IA não conseguiu identificar documentos no índice. Por favor, verifique se o PDF contém um índice legível nas primeiras páginas.");
+      }
+
       // ORDENAÇÃO E PÓS-PROCESSAMENTO PARA GARANTIR PÁGINAS FINAIS
       const sortedDocs = [...result.documentos].sort((a, b) => a.pagina_inicial - b.pagina_inicial);
       
@@ -161,46 +174,84 @@ const App: React.FC = () => {
         const doc = sortedDocs[i];
         
         // Garante o número do processo em cada doc
-        doc.numero_processo = result.numero_processo;
+        doc.numero_processo = result.numero_processo || doc.numero_processo;
 
-        // Calcula página final baseando-se no próximo documento
-        if (i < sortedDocs.length - 1) {
-          doc.pagina_final = sortedDocs[i + 1].pagina_inicial - 1;
-        } else {
-          doc.pagina_final = totalPages;
+        // Calcula página final baseando-se no próximo documento se não vier da IA
+        if (!doc.pagina_final || doc.pagina_final <= doc.pagina_inicial) {
+          if (i < sortedDocs.length - 1) {
+            doc.pagina_final = sortedDocs[i + 1].pagina_inicial - 1;
+          } else {
+            doc.pagina_final = totalPages;
+          }
         }
-      }
 
-      setProcessingStep('snapshots');
-      setSnapshotProgress({ current: 0, total: sortedDocs.length });
-      
-      for (let i = 0; i < sortedDocs.length; i++) {
-        const doc = sortedDocs[i];
-        try {
-          doc.snapshot = await getPageSnapshot(file, doc.pagina_inicial);
-        } catch (e) {
-          console.warn(`Snapshot failed for doc ${doc.id_documento}`);
-        }
-        setSnapshotProgress(prev => ({ ...prev, current: i + 1 }));
+        // Reconstruct texto_integral from pages array (saves AI output tokens)
+        const startPage = Math.max(1, doc.pagina_inicial);
+        const endPage = Math.min(totalPages, doc.pagina_final || totalPages);
+        doc.texto_integral = pages.slice(startPage - 1, endPage).join('\n\n');
       }
 
       setAnalysis({ ...result, documentos: sortedDocs });
-      setChatHistory([]); 
+      setChatHistory([]);
+      setIsProcessing(false);
+      setProcessingStep(null);
+
+      // GERAÇÃO DE SNAPSHOTS EM BACKGROUND (PARALELIZADA EM LOTES)
+      setSnapshotProgress({ current: 0, total: sortedDocs.length });
+      
+      const batchSize = 3;
+      for (let i = 0; i < sortedDocs.length; i += batchSize) {
+        const batch = sortedDocs.slice(i, i + batchSize);
+        await Promise.all(batch.map(async (doc, idx) => {
+          try {
+            const snapshot = await getPageSnapshot(file, doc.pagina_inicial);
+            setAnalysis(prev => {
+              if (!prev) return prev;
+              const newDocs = [...prev.documentos];
+              const docIdx = newDocs.findIndex(d => d.id_documento === doc.id_documento);
+              if (docIdx !== -1) {
+                newDocs[docIdx] = { ...newDocs[docIdx], snapshot };
+              }
+              return { ...prev, documentos: newDocs };
+            });
+          } catch (e) {
+            console.warn(`Snapshot failed for doc ${doc.id_documento}`);
+          }
+          setSnapshotProgress(prev => ({ ...prev, current: Math.min(prev.current + 1, sortedDocs.length) }));
+        }));
+      }
     } catch (err: any) {
       console.error("Processing error:", err);
-      const isApiKeyInvalid = err?.message?.includes('API key not valid') || err?.message?.includes('INVALID_ARGUMENT');
+      const errorMsg = typeof err === 'string' ? err : (err?.message || JSON.stringify(err));
+      const isApiKeyInvalid = errorMsg.includes('API key not valid') || errorMsg.includes('INVALID_ARGUMENT');
       
       if (isApiKeyInvalid) {
         setError({ message: 'A chave da API introduzida é inválida. Por favor, verifique a chave e tente novamente.' });
         localStorage.removeItem('GEMINI_API_KEY');
         setHasApiKey(false);
       } else {
-        const isQuota = err?.message?.includes('429') || err?.status === 429;
+        const isQuota = errorMsg.includes('429') || err?.status === 429 || errorMsg.includes('RESOURCE_EXHAUSTED');
+        const isUnavailable = errorMsg.includes('503') || err?.status === 503 || errorMsg.includes('UNAVAILABLE');
+        const isSpendingCap = errorMsg.toLowerCase().includes('spending cap') || errorMsg.toLowerCase().includes('billing');
+        
+        let message = errorMsg;
+        
+        // Se a mensagem for muito técnica ou vazia, usamos a padrão
+        if (!message || message.includes('Unexpected token') || message.includes('[object Object]') || message.length > 300) {
+          message = 'Erro ao processar o documento. Verifique se o PDF é válido.';
+        }
+
+        if (isSpendingCap) {
+          message = 'O limite de gastos (spending cap) do seu projeto Google Cloud foi atingido. Verifique as configurações de faturação na Google Cloud Console ou utilize uma chave com limites superiores.';
+        } else if (isQuota) {
+          message = 'Limite de quota excedido ou muitas solicitações. Por favor, aguarde um momento ou verifique os limites da sua conta.';
+        } else if (isUnavailable) {
+          message = 'O serviço está temporariamente indisponível devido a alta procura. Por favor, tente novamente dentro de alguns instantes.';
+        }
+
         setError({ 
-          message: isQuota 
-            ? 'Limite de quota excedido. Por favor, aguarde um momento.' 
-            : 'Erro ao processar o documento. Verifique se o PDF é válido.',
-          isQuota: isQuota
+          message,
+          isQuota: isQuota || isUnavailable
         });
       }
     } finally {
@@ -219,6 +270,59 @@ const App: React.FC = () => {
     link.download = `Citius_${analysis.numero_processo.replace(/\//g, '_')}.json`;
     link.click();
     URL.revokeObjectURL(url);
+  };
+
+  const handleExportZip = async () => {
+    if (!analysis || !file) {
+      if (!file) {
+        alert("Por favor, vincule o PDF original para exportar os documentos.");
+        relinkPdfInputRef.current?.click();
+      }
+      return;
+    }
+
+    try {
+      setIsExporting(true);
+      const zip = new JSZip();
+      const existingPdfBytes = await file.arrayBuffer();
+      const pdfDoc = await PDFDocument.load(existingPdfBytes);
+
+      for (const doc of analysis.documentos) {
+        const newPdf = await PDFDocument.create();
+        const start = doc.pagina_inicial - 1; // 0-indexed
+        const end = doc.pagina_final - 1; // 0-indexed
+        
+        if (start < 0 || end >= pdfDoc.getPageCount()) {
+          console.warn(`Invalid page range for doc ${doc.id_documento}: ${start}-${end}`);
+          continue;
+        }
+
+        const pagesToCopy = Array.from({ length: end - start + 1 }, (_, i) => start + i);
+        const copiedPages = await newPdf.copyPages(pdfDoc, pagesToCopy);
+        copiedPages.forEach(page => newPdf.addPage(page));
+
+        const pdfBytes = await newPdf.save();
+        
+        // Nome: [nome do ato].[ref do ato].[ref documento].[descrição do documento]
+        const sanitize = (str: string) => (str || '').replace(/[\\/:*?"<>|]/g, '_').trim();
+        const fileName = `${sanitize(doc.tipo_documento_principal)}.${sanitize(doc.ref_ato)}.${sanitize(doc.ref_documento)}.${sanitize(doc.titulo_resumido)}.pdf`;
+        
+        zip.file(fileName, pdfBytes);
+      }
+
+      const zipBlob = await zip.generateAsync({ type: 'blob' });
+      const url = URL.createObjectURL(zipBlob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `Dossier_${analysis.numero_processo.replace(/\//g, '_')}.zip`;
+      link.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error("Export error:", err);
+      alert("Erro ao exportar o dossier. Verifique se o PDF original está acessível.");
+    } finally {
+      setIsExporting(false);
+    }
   };
 
   const handleLoadProject = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -268,20 +372,33 @@ const App: React.FC = () => {
 
     if (sortOrder === 'alphabetical') {
       baseDocs.sort((a, b) => (a.titulo_resumido || '').localeCompare(b.titulo_resumido || ''));
-    } else {
+    } else if (sortOrder === 'chronological') {
       baseDocs.sort((a, b) => (a.pagina_inicial || 0) - (b.pagina_inicial || 0));
+    } else {
+      // Default: Index order
+      baseDocs.sort((a, b) => (a.indexOrder || 0) - (b.indexOrder || 0));
     }
 
     const groups: { refAto: string, docs: DocumentMetadata[] }[] = [];
-    const seenRefs = new Set<string>();
-
+    
+    // Grouping logic: Group by ref_ato but preserve the order of appearance
+    // If ref_ato is missing, we try to keep it in the same group if the type matches or it's a continuation
     baseDocs.forEach(doc => {
       const ref = doc.ref_ato || 'Sem Ref';
-      if (!seenRefs.has(ref)) {
-        seenRefs.add(ref);
+      const type = doc.tipo_documento_indice || 'Outro';
+      const lastGroup = groups[groups.length - 1];
+      
+      // If same ref, definitely same group
+      // If ref is missing but it's the same type as the last group, keep it together
+      const isSameRef = lastGroup && lastGroup.refAto === ref && ref !== 'Sem Ref';
+      const isContinuation = lastGroup && ref === 'Sem Ref' && lastGroup.docs[0].tipo_documento_indice === type;
+
+      if (isSameRef || isContinuation) {
+        lastGroup.docs.push(doc);
+      } else {
         groups.push({
           refAto: ref,
-          docs: baseDocs.filter(d => d.ref_ato === ref)
+          docs: [doc]
         });
       }
     });
@@ -403,7 +520,19 @@ const App: React.FC = () => {
                 </div>
               )}
             </div>
-            {error && <div className="mt-4 p-4 rounded-xl bg-red-50 text-red-700 text-xs font-bold border border-red-100">{error.message}</div>}
+            {error && (
+              <div className="mt-4 p-4 rounded-xl bg-red-50 text-red-700 text-xs font-bold border border-red-100 space-y-3">
+                <p>{error.message}</p>
+                {error.isQuota && (
+                  <button 
+                    onClick={handleAnalyze}
+                    className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+                  >
+                    Tentar Novamente
+                  </button>
+                )}
+              </div>
+            )}
             <div className="grid grid-cols-2 gap-4 mt-6">
               <button onClick={handleAnalyze} disabled={!file} className="py-4 bg-blue-600 text-white font-black rounded-2xl hover:bg-blue-700 disabled:opacity-50 uppercase tracking-widest text-xs shadow-xl shadow-blue-100">
                 Analisar Processo
@@ -451,9 +580,20 @@ const App: React.FC = () => {
             <p className="text-[10px] text-slate-400 font-bold leading-none">{analysis?.numero_processo}</p>
           </div>
         </div>
-        <div className="flex-1 max-w-xl mx-8 relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-300" />
-          <input type="text" placeholder="Filtrar cronologia..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border-transparent focus:bg-white focus:border-blue-500 rounded-xl text-xs transition-all border font-medium" />
+        <div className="flex-1 max-w-xl mx-8 relative flex items-center gap-2">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-300" />
+            <input type="text" placeholder="Filtrar cronologia..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border-transparent focus:bg-white focus:border-blue-500 rounded-xl text-xs transition-all border font-medium" />
+          </div>
+          <select 
+            value={sortOrder} 
+            onChange={(e) => setSortOrder(e.target.value as SortOrder)}
+            className="bg-slate-50 border-transparent rounded-xl px-3 py-2.5 text-[10px] font-black uppercase text-slate-500 focus:bg-white focus:border-blue-500 outline-none border transition-all cursor-pointer"
+          >
+            <option value="index">Índice</option>
+            <option value="chronological">Página</option>
+            <option value="alphabetical">Nome</option>
+          </select>
         </div>
         <div className="flex items-center space-x-2">
           {!(window as any).aistudio && (
@@ -470,6 +610,14 @@ const App: React.FC = () => {
           )}
           <button onClick={handleSaveProject} className="flex items-center space-x-2 px-4 py-2 text-[10px] font-black uppercase bg-blue-50 text-blue-600 border border-blue-100 rounded-xl hover:bg-blue-100 transition-colors">
             <Download className="w-3.5 h-3.5" /> <span className="hidden md:inline">Guardar JSON</span>
+          </button>
+          <button 
+            onClick={handleExportZip} 
+            disabled={isExporting}
+            className="flex items-center space-x-2 px-4 py-2 text-[10px] font-black uppercase bg-slate-900 text-white rounded-xl hover:bg-slate-800 transition-colors disabled:opacity-50"
+          >
+            {isExporting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Archive className="w-3.5 h-3.5" />}
+            <span className="hidden md:inline">{isExporting ? 'A processar...' : 'Exportar ZIP'}</span>
           </button>
           <button onClick={() => { setAnalysis(null); setFile(null); }} className="px-4 py-2 text-[10px] font-black uppercase bg-white border border-slate-200 rounded-xl hover:bg-slate-50 transition-colors">Novo</button>
         </div>
@@ -507,10 +655,35 @@ const App: React.FC = () => {
               <button onClick={() => setActiveTab('assistant')} className={`px-6 py-2 rounded-xl text-xs font-black uppercase transition-all ${activeTab === 'assistant' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-400 hover:bg-slate-50'}`}>Assistente</button>
             </div>
 
+            {analysis?.isTruncated && (
+              <div className="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-2xl flex items-start gap-4">
+                <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                <div>
+                  <h4 className="text-xs font-black text-amber-900 uppercase tracking-tight mb-1">Análise Parcial Detectada</h4>
+                  <p className="text-[11px] text-amber-700 leading-relaxed font-medium">
+                    O dossier é muito extenso e a resposta da IA foi interrompida. Os documentos apresentados são apenas uma parte do processo total.
+                    Tente analisar o PDF em partes menores ou verifique se o índice está completo.
+                  </p>
+                </div>
+              </div>
+            )}
+
             {activeTab === 'timeline' ? (
               <div className="space-y-2">
-                {groupedDocs.map(group => (
-                  <DocumentGroup key={group.refAto} refAto={group.refAto} documents={group.docs} onDocumentClick={setSelectedDoc} />
+                {groupedDocs.map((group, gIdx) => (
+                  <DocumentGroup 
+                    key={`${group.refAto}-${gIdx}`} 
+                    refAto={group.refAto} 
+                    documents={group.docs} 
+                    onDocumentClick={(doc) => {
+                      setSelectedDoc(doc);
+                      setSelectedSubDocPage(undefined);
+                    }}
+                    onSubDocClick={(doc, sub) => {
+                      setSelectedDoc(doc);
+                      setSelectedSubDocPage(sub.pagina_pdf);
+                    }}
+                  />
                 ))}
               </div>
             ) : (
@@ -534,7 +707,21 @@ const App: React.FC = () => {
       </div>
 
       {selectedDoc && (
-        <DocumentDetail doc={selectedDoc} file={file} onClose={() => setSelectedDoc(null)} siblings={incidentSiblings} onSelectSibling={setSelectedDoc} onFileRelink={(f) => setFile(f)} />
+        <DocumentDetail 
+          doc={selectedDoc} 
+          file={file} 
+          initialPage={selectedSubDocPage}
+          onClose={() => {
+            setSelectedDoc(null);
+            setSelectedSubDocPage(undefined);
+          }}
+          siblings={incidentSiblings}
+          onSelectSibling={(sibling) => {
+            setSelectedDoc(sibling);
+            setSelectedSubDocPage(undefined);
+          }}
+          onFileRelink={(f) => setFile(f)}
+        />
       )}
     </div>
   );
