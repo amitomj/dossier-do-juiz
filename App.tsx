@@ -425,6 +425,12 @@ const App: React.FC = () => {
     return analysis.documentos.filter(d => d.ref_ato === selectedDoc.ref_ato);
   }, [selectedDoc, analysis]);
 
+  const handleClearKey = () => {
+    localStorage.removeItem('GEMINI_API_KEY');
+    setHasApiKey(false);
+    setManualApiKey('');
+  };
+
   if (hasApiKey === null) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center">
@@ -513,7 +519,17 @@ const App: React.FC = () => {
               <Gavel className="w-10 h-10 text-white" />
             </div>
             <h1 className="text-4xl font-black tracking-tight">Citius Analytics Pro</h1>
-            <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">v1.1 - Proteção de Chave Ativa</p>
+            <div className="flex items-center justify-center gap-2 mt-1">
+              <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">v1.1 - Proteção de Chave Ativa</p>
+              {typeof window !== 'undefined' && !(window as any).aistudio && (
+                <button 
+                  onClick={handleClearKey}
+                  className="text-[10px] text-blue-600 font-bold uppercase tracking-widest hover:underline flex items-center gap-1"
+                >
+                  • Alterar Chave
+                </button>
+              )}
+            </div>
           </div>
           <div className="bg-white p-8 rounded-3xl shadow-2xl border border-slate-200">
             <div 

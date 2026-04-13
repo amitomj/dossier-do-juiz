@@ -4,15 +4,23 @@ import { SYSTEM_INSTRUCTION } from "../constants";
 import { TokenMetrics, Citation } from "../types";
 
 const getAIClient = () => {
+  // 1. Check if we are in AI Studio environment
+  // @ts-ignore
+  if (typeof window !== 'undefined' && window.aistudio) {
+    // In AI Studio preview, the platform handles the key automatically
+    // We can use a placeholder or the environment variable if available
+    const platformKey = (import.meta as any).env?.VITE_GEMINI_API_KEY || 'AI_STUDIO_MANAGED';
+    return new GoogleGenAI({ apiKey: platformKey });
+  }
+
+  // 2. For external deployments, use the manual key from localStorage
   const manualKey = typeof window !== 'undefined' ? localStorage.getItem('GEMINI_API_KEY') : null;
   
-  // Validation function
   const isValid = (k: string | null | undefined) => 
     !!k && k.trim().length > 10 && k.startsWith('AIza');
 
-  // Only use the manual key from localStorage
   if (!isValid(manualKey)) {
-    throw new Error('API Key not found or invalid. Please provide a valid Gemini API key (starting with AIza) at the startup screen.');
+    throw new Error('Chave API não encontrada. Por favor, configure a sua chave no ecrã inicial.');
   }
   
   return new GoogleGenAI({ apiKey: manualKey! });
