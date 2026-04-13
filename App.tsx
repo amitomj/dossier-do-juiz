@@ -513,6 +513,7 @@ const App: React.FC = () => {
               <Gavel className="w-10 h-10 text-white" />
             </div>
             <h1 className="text-4xl font-black tracking-tight">Citius Analytics Pro</h1>
+            <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">v1.1 - Proteção de Chave Ativa</p>
           </div>
           <div className="bg-white p-8 rounded-3xl shadow-2xl border border-slate-200">
             <div 
