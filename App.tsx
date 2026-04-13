@@ -67,21 +67,40 @@ const App: React.FC = () => {
           setHasApiKey(false);
         }
       } else {
-        // For external deployments (Vercel, etc.), check if the key is already defined via env vars or localStorage
+        // For external deployments (Vercel, etc.)
         const manualKey = localStorage.getItem('GEMINI_API_KEY');
-        const isKeyPresent = !!(process.env.API_KEY || process.env.GEMINI_API_KEY || manualKey);
+        
+        // Robust check: must be a string and look like a Gemini key (starts with AIza)
+        const isValid = (k: string | null | undefined) => 
+          !!k && k.trim().length > 10 && k.startsWith('AIza');
+
+        // We only skip the setup screen if the user has a valid key in localStorage
+        // This ensures each user can provide their own key as requested.
+        const isKeyPresent = isValid(manualKey);
         setHasApiKey(isKeyPresent);
       }
     };
     checkApiKey();
   }, []);
 
+  const handleUseDefaultKey = () => {
+    const envKey = (import.meta.env.VITE_GEMINI_API_KEY as string) || 
+                   (import.meta.env.VITE_API_KEY as string);
+    if (envKey) {
+      localStorage.setItem('GEMINI_API_KEY', envKey);
+      setHasApiKey(true);
+    }
+  };
+
   const handleManualKeySubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (manualApiKey.trim()) {
-      localStorage.setItem('GEMINI_API_KEY', manualApiKey.trim());
+    const key = manualApiKey.trim();
+    if (key.startsWith('AIza') && key.length > 10) {
+      localStorage.setItem('GEMINI_API_KEY', key);
       setHasApiKey(true);
       setError(null);
+    } else {
+      setError(new Error('A chave deve começar por "AIza" e ser válida.'));
     }
   };
 
@@ -426,6 +445,10 @@ const App: React.FC = () => {
 
   if (hasApiKey === false) {
     const isExternal = typeof window !== 'undefined' && !(window as any).aistudio;
+    const envKey = (import.meta.env.VITE_GEMINI_API_KEY as string) || 
+                   (import.meta.env.VITE_API_KEY as string);
+    const hasEnvKey = !!envKey && envKey.startsWith('AIza');
+
     return (
       <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-6 text-slate-900">
         <div className="w-full max-w-md space-y-8 text-center animate-in fade-in duration-500">
@@ -433,36 +456,55 @@ const App: React.FC = () => {
             <Key className="w-10 h-10 text-white" />
           </div>
           <div className="space-y-4">
-            <h1 className="text-3xl font-black tracking-tight uppercase">Configuração Necessária</h1>
+            <h1 className="text-3xl font-black tracking-tight uppercase">Configuração</h1>
             <p className="text-slate-500 font-medium leading-relaxed">
               {isExternal 
-                ? "Para utilizar esta aplicação no Vercel, introduza a sua chave da API do Gemini."
+                ? "Para utilizar esta aplicação, introduza a sua própria chave da API do Gemini."
                 : "Para utilizar as funcionalidades avançadas de IA do Citius Pro, é necessário selecionar uma chave da API do Gemini."}
             </p>
             
             {isExternal ? (
-              <form onSubmit={handleManualKeySubmit} className="space-y-4">
-                <div className="relative">
-                  <Key className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                  <input 
-                    type="password" 
-                    placeholder="Cole aqui a sua chave da API..." 
-                    value={manualApiKey}
-                    onChange={(e) => setManualApiKey(e.target.value)}
-                    className="w-full pl-12 pr-4 py-4 bg-white border border-slate-200 rounded-2xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all font-medium"
-                  />
-                </div>
-                <button 
-                  type="submit"
-                  disabled={!manualApiKey.trim()}
-                  className="w-full py-4 bg-blue-600 text-white font-black rounded-2xl hover:bg-blue-700 transition-all shadow-xl shadow-blue-100 uppercase tracking-widest text-xs disabled:opacity-50"
-                >
-                  Confirmar Chave
-                </button>
+              <div className="space-y-4">
+                <form onSubmit={handleManualKeySubmit} className="space-y-4">
+                  <div className="relative">
+                    <Key className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                    <input 
+                      type="password" 
+                      placeholder="Cole aqui a sua chave da API (AIza...)" 
+                      value={manualApiKey}
+                      onChange={(e) => setManualApiKey(e.target.value)}
+                      className="w-full pl-12 pr-4 py-4 bg-white border border-slate-200 rounded-2xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all font-medium"
+                    />
+                  </div>
+                  <button 
+                    type="submit"
+                    disabled={!manualApiKey.trim()}
+                    className="w-full py-4 bg-blue-600 text-white font-black rounded-2xl hover:bg-blue-700 transition-all shadow-xl shadow-blue-100 uppercase tracking-widest text-xs disabled:opacity-50"
+                  >
+                    Utilizar Minha Chave
+                  </button>
+                </form>
+
+                {hasEnvKey && (
+                  <div className="relative py-4">
+                    <div className="absolute inset-0 flex items-center"><span className="w-full border-t border-slate-200"></span></div>
+                    <div className="relative flex justify-center text-xs uppercase"><span className="bg-slate-50 px-2 text-slate-400 font-bold">Ou</span></div>
+                  </div>
+                )}
+
+                {hasEnvKey && (
+                  <button 
+                    onClick={handleUseDefaultKey}
+                    className="w-full py-4 bg-white border border-slate-200 text-slate-600 font-black rounded-2xl hover:bg-slate-50 transition-all uppercase tracking-widest text-xs flex items-center justify-center gap-2"
+                  >
+                    Utilizar Chave Padrão do Sistema
+                  </button>
+                )}
+
                 <p className="text-[10px] text-slate-400 font-medium">
                   A chave será guardada localmente no seu navegador.
                 </p>
-              </form>
+              </div>
             ) : (
               <div className="p-4 bg-blue-50 rounded-2xl border border-blue-100 text-left">
                 <p className="text-[11px] font-black text-blue-800 uppercase tracking-widest mb-2">Nota Importante:</p>
@@ -599,13 +641,16 @@ const App: React.FC = () => {
           {!(window as any).aistudio && (
             <button 
               onClick={() => {
-                localStorage.removeItem('GEMINI_API_KEY');
-                setHasApiKey(false);
+                if (confirm('Deseja alterar a chave da API? A chave atual será removida.')) {
+                  localStorage.removeItem('GEMINI_API_KEY');
+                  setHasApiKey(false);
+                }
               }}
-              className="px-3 py-2 text-[10px] font-black uppercase bg-slate-100 text-slate-500 rounded-xl hover:bg-slate-200 transition-colors"
+              className="flex items-center gap-2 px-3 py-2 text-[10px] font-black uppercase bg-slate-100 text-slate-500 rounded-xl hover:bg-slate-200 transition-colors"
               title="Alterar Chave da API"
             >
               <Key className="w-3.5 h-3.5" />
+              <span className="hidden xl:inline">Alterar Chave</span>
             </button>
           )}
           <button onClick={handleSaveProject} className="flex items-center space-x-2 px-4 py-2 text-[10px] font-black uppercase bg-blue-50 text-blue-600 border border-blue-100 rounded-xl hover:bg-blue-100 transition-colors">

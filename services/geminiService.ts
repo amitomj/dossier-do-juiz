@@ -5,10 +5,24 @@ import { TokenMetrics, Citation } from "../types";
 
 const getAIClient = () => {
   const manualKey = typeof window !== 'undefined' ? localStorage.getItem('GEMINI_API_KEY') : null;
-  const apiKey = manualKey || process.env.API_KEY || process.env.GEMINI_API_KEY;
+  
+  const envKey = (import.meta.env.VITE_GEMINI_API_KEY as string) || 
+                 (import.meta.env.VITE_API_KEY as string);
+  
+  const processKey = process.env.GEMINI_API_KEY || process.env.API_KEY;
+
+  // Validation function
+  const isValid = (k: string | null | undefined) => 
+    !!k && k.trim().length > 10 && k.startsWith('AIza');
+
+  // Prioritize manual key, then Vite env vars, then process.env
+  let apiKey = '';
+  if (isValid(manualKey)) apiKey = manualKey!;
+  else if (isValid(envKey)) apiKey = envKey;
+  else if (isValid(processKey)) apiKey = processKey!;
   
   if (!apiKey) {
-    throw new Error('API Key not found. Please provide it in the app settings or paste it at startup.');
+    throw new Error('API Key not found or invalid. Please provide a valid Gemini API key (starting with AIza).');
   }
   
   return new GoogleGenAI({ apiKey });
