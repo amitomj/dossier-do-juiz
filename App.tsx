@@ -75,22 +75,12 @@ const App: React.FC = () => {
           !!k && k.trim().length > 10 && k.startsWith('AIza');
 
         // We only skip the setup screen if the user has a valid key in localStorage
-        // This ensures each user can provide their own key as requested.
         const isKeyPresent = isValid(manualKey);
         setHasApiKey(isKeyPresent);
       }
     };
     checkApiKey();
   }, []);
-
-  const handleUseDefaultKey = () => {
-    const envKey = (import.meta.env.VITE_GEMINI_API_KEY as string) || 
-                   (import.meta.env.VITE_API_KEY as string);
-    if (envKey) {
-      localStorage.setItem('GEMINI_API_KEY', envKey);
-      setHasApiKey(true);
-    }
-  };
 
   const handleManualKeySubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -117,7 +107,7 @@ const App: React.FC = () => {
       }
     } else {
       // If not in AI Studio, we can't open the selection dialog
-      setError({ message: 'Para utilizar esta app fora do AI Studio (ex: Vercel), deve configurar a variável de ambiente GEMINI_API_KEY ou colar a chave abaixo.' });
+      setError({ message: 'Para utilizar esta aplicação, por favor introduza a sua chave da API no campo acima.' });
     }
   };
 
@@ -445,9 +435,6 @@ const App: React.FC = () => {
 
   if (hasApiKey === false) {
     const isExternal = typeof window !== 'undefined' && !(window as any).aistudio;
-    const envKey = (import.meta.env.VITE_GEMINI_API_KEY as string) || 
-                   (import.meta.env.VITE_API_KEY as string);
-    const hasEnvKey = !!envKey && envKey.startsWith('AIza');
 
     return (
       <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-6 text-slate-900">
@@ -476,6 +463,11 @@ const App: React.FC = () => {
                       className="w-full pl-12 pr-4 py-4 bg-white border border-slate-200 rounded-2xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all font-medium"
                     />
                   </div>
+                  {error && (
+                    <p className="text-red-500 text-[10px] font-bold uppercase tracking-tight">
+                      {error.message}
+                    </p>
+                  )}
                   <button 
                     type="submit"
                     disabled={!manualApiKey.trim()}
@@ -484,22 +476,6 @@ const App: React.FC = () => {
                     Utilizar Minha Chave
                   </button>
                 </form>
-
-                {hasEnvKey && (
-                  <div className="relative py-4">
-                    <div className="absolute inset-0 flex items-center"><span className="w-full border-t border-slate-200"></span></div>
-                    <div className="relative flex justify-center text-xs uppercase"><span className="bg-slate-50 px-2 text-slate-400 font-bold">Ou</span></div>
-                  </div>
-                )}
-
-                {hasEnvKey && (
-                  <button 
-                    onClick={handleUseDefaultKey}
-                    className="w-full py-4 bg-white border border-slate-200 text-slate-600 font-black rounded-2xl hover:bg-slate-50 transition-all uppercase tracking-widest text-xs flex items-center justify-center gap-2"
-                  >
-                    Utilizar Chave Padrão do Sistema
-                  </button>
-                )}
 
                 <p className="text-[10px] text-slate-400 font-medium">
                   A chave será guardada localmente no seu navegador.
